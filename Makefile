@@ -5,13 +5,16 @@
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
 # The Check workflow runs make check and make test on every pull request.
-# Replace each recipe below once the project has something to lint or test.
+# Locally, point PYTHON at the dev environment: make check PYTHON=.venv/bin/python
+PYTHON ?= python3
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf " %-6s %s\n", $$1, $$2}' $(THIS_MAKEFILE)
 
 check: ## Lint the code
-	@echo ' Nothing to check yet.'
+	$(PYTHON) -m ruff check .
+	$(PYTHON) -m ruff format --check .
+	docker compose -f compose.yaml config -q
 
 test: ## Run the tests
-	@echo ' Nothing to test yet.'
+	$(PYTHON) -m pytest

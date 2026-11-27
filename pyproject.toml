@@ -1,0 +1,8 @@
+[tool.ruff]
+target-version = "py312"
+# Markdown here quotes code as it is (the plan's Appendix A, README snippets): don't reformat it.
+extend-exclude = ["*.md"]
+
+[tool.pytest.ini_options]
+pythonpath = ["warmup"]
+testpaths = ["tests"]
