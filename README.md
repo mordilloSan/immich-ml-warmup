@@ -160,10 +160,11 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements-dev.txt
-make check PYTHON=.venv/bin/python   # ruff, and docker compose config of compose.yaml
-make test PYTHON=.venv/bin/python    # pytest
+make check   # ruff, and docker compose config of compose.yaml
+make test    # pytest
 ```
 
+`make` uses `.venv` when it exists, and `python3` otherwise (CI installs the tools there).
 Python 3.12 is the Python in the ROCm `immich-machine-learning` image. The tests don't need
 the image, a GPU or a Docker daemon; `tests/test_compose.py` needs the `docker compose` CLI
 and resolves `tests/stack/`, a minimal stack set up the way Setup describes.
