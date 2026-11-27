@@ -28,16 +28,16 @@ It needs the ROCm image (`immich-machine-learning:<version>-rocm`) and an AMD GP
 Nothing is built and no extra image is pulled. The warm-up's `image:` is a YAML alias of
 your `immich-machine-learning` image line (see Setup), so both services run the same image
 whatever command you use to update Immich (`docker compose pull` then `up -d`,
-`up -d --pull always`, or an update tool). This repo only provides the script and the
-service definition.
+`up -d --pull always`, or an update tool). This repo provides the script and the service
+to paste into your Immich `compose.yaml`.
 
 ## Setup
 
-1. Clone this repo next to the folder that holds your Immich `compose.yaml`, at the latest
-   release tag. Run this, and the commands further down, from that Immich folder:
+1. Download the script from the latest release tag into the folder that holds your Immich
+   `compose.yaml`. Run this, and the commands further down, from that folder:
 
    ```bash
-   git -C .. clone --branch vX.Y.Z https://github.com/mordilloSan/immich-ml-warmup.git
+   curl -fsSLo ml-warmup.py https://raw.githubusercontent.com/mordilloSan/immich-ml-warmup/vX.Y.Z/warmup/warmup.py
    ```
 
 2. In your Immich `compose.yaml`, mark the `immich-machine-learning` image line with the
@@ -53,22 +53,52 @@ service definition.
 
    ```yaml
    immich-ml-warmup:
-     extends:
-       file: ../immich-ml-warmup/compose.yaml   # path to this repo's compose.yaml
-       service: immich-ml-warmup
-     image: *ml-image                           # the exact image immich-machine-learning runs
-     user: "1000:1000"                          # same user as immich-machine-learning
-     group_add: ["44", "991"]                   # this host's video and render group IDs
-     networks: [immich-ml]                      # a network immich-machine-learning uses
+     image: *ml-image                         # the exact image immich-machine-learning runs
+     container_name: immich_ml_warmup
+     user: "1000:1000"                        # same user as immich-machine-learning
+     group_add: ["44", "991"]                 # this host's video and render group IDs
+     networks: [immich-ml]                    # a network immich-machine-learning uses
+     env_file: [.env]                         # same ML settings, plus the WARMUP_ variables
      volumes:
-       - ${MODEL_CACHE_LOCATION}:/cache         # same model cache as immich-machine-learning
-     env_file: [.env]                           # same ML settings, plus the WARMUP_ variables
+       - ${MODEL_CACHE_LOCATION}:/cache       # same model cache as immich-machine-learning
+       - ./ml-warmup.py:/ml-warmup.py:ro      # the script from step 1
+     devices:
+       - /dev/dri:/dev/dri
+       - /dev/kfd:/dev/kfd
+     security_opt:
+       - no-new-privileges:true
+     cap_drop:
+       - ALL
+     read_only: true                          # writes only to /cache and /tmp
+     tmpfs:
+       - /tmp:size=512m,mode=1777             # ROCm's compiler temp files
+     mem_limit: 16g
+     pids_limit: 512
+     init: true                               # so docker stop ends the idle sleep at once
+     # Python exits after the warm-up and frees its memory; the container idles.
+     entrypoint:
+       - /bin/sh
+       - -c
+       - >-
+         python /ml-warmup.py || echo "warm-up: python exited with an error";
+         echo "warm-up: idle"; exec sleep infinity
+     # Replaces the image's healthcheck, which pings an ML server that never runs here.
+     # Healthy = able to do the job (cache writable, GPU usable), not "models compiled".
+     healthcheck:
+       test: ["CMD-SHELL", "test -w /cache && test -r /dev/kfd && test -w /dev/kfd && test -r /dev/dri/renderD128 && test -w /dev/dri/renderD128"]
+       interval: 60s
+       timeout: 5s
+       retries: 3
+       start_period: 30s
+       start_interval: 2s
+     restart: unless-stopped
    ```
 
-   Adjust each line to match your `immich-machine-learning` service: copy what it has, and
-   leave out what it doesn't. Stock Immich, for example, runs ML as root on the default
-   network, so its warm-up needs no `user`, `group_add` or `networks` line. The `/cache`
-   volume and `env_file` are always needed. Each line you keep must match that service:
+   The lines from `user` to the `/cache` volume describe your host. Adjust them to match
+   your `immich-machine-learning` service: copy what it has, and leave out what it doesn't.
+   Stock Immich, for example, runs ML as root on the default network, so its warm-up needs
+   no `user`, `group_add` or `networks` line. The `/cache` volume and `env_file` are always
+   needed. Each line you keep must match that service:
 
    - `user`: so both containers can write to the cache.
    - The `/cache` volume: a named volume (`model-cache:/cache`) works too.
@@ -79,11 +109,10 @@ service definition.
 
    You can add your own labels too, for example `io.linuxio.container.icon=si:amd`.
 
-   Keep `image: *ml-image`: it is what keeps both services on the same image. Without it,
-   the warm-up uses the repo's default line,
-   `ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}-rocm`, and nothing
-   warns you if your ML line is different (a pinned tag, a digest). It would then compile
-   for another MIGraphX build than the one `immich-machine-learning` runs.
+   Keep `image: *ml-image` instead of writing the image again: it is what keeps both
+   services on the same image. A copied line drifts as soon as you change the ML one (a
+   pinned tag, a digest), nothing warns you, and the warm-up then compiles for another
+   MIGraphX build than the one `immich-machine-learning` runs.
 
 4. Start it, then read the log:
 
@@ -113,7 +142,7 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 | `warm-up: all models loaded or compiled in <N> s` | The run succeeded. |
 | `warm-up: stamp written (<N> compiled files)` | The next start can skip. |
 | `warm-up FAILED after <N> s: <error>` | Immich's preload raised an error. No stamp is written, so it runs again at the next start. |
-| `warm-up: python exited with an error` | The script itself failed. See Known limits. |
+| `warm-up: python exited with an error` | The script itself failed, or `ml-warmup.py` is missing. See Known limits. |
 | `warm-up: idle` | The container is done and waits. |
 
 - To force a run, delete `.warmup-stamp.json` in the model cache and run
@@ -127,14 +156,16 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 ## Updating
 
 - **Immich:** nothing to do. The next start of the warm-up sees the new image and runs.
-- **This repo:** check out the new release tag, then recreate the container so it picks
-  up the new script and settings:
+- **This repo:** download the script from the new release tag, then recreate the container
+  so it runs the new script:
 
   ```bash
-  git -C ../immich-ml-warmup fetch --tags
-  git -C ../immich-ml-warmup checkout vX.Y.Z
+  curl -fsSLo ml-warmup.py https://raw.githubusercontent.com/mordilloSan/immich-ml-warmup/vX.Y.Z/warmup/warmup.py
   docker compose up -d --force-recreate immich-ml-warmup
   ```
+
+  If the release notes mention a change to the service, update your `immich-ml-warmup`
+  entry from Setup step 3 as well.
 
 ## Known limits
 
@@ -143,12 +174,16 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 - The warm-up calls `preload_models` from `immich_ml.main`, which is internal Immich code. If
   a release renames it, the log says `warm-up: python exited with an error` and models
   compile during jobs again until this repo is updated.
+- If `ml-warmup.py` isn't in the Immich folder when the container starts, Docker creates an
+  empty folder of that name in its place, and the log says
+  `warm-up: python exited with an error`. Remove that folder (`sudo rmdir ml-warmup.py`, it
+  belongs to root), download the script (Setup step 1) and recreate the container.
 - The healthcheck checks `/dev/dri/renderD128`, the first GPU. If yours is another render
-  node, set `healthcheck` in your service.
+  node, change it in the healthcheck.
 - The container's filesystem is read-only. It writes only to `/cache` and to a 512 MB
-  `/tmp`, which Docker mounts `noexec`. If a model compile ever fails with
-  "Permission denied" on a `/tmp` path, give `/tmp` exec in your service. That entry replaces
-  the repo's:
+  `/tmp`, which Docker mounts `noexec` and which counts against `mem_limit` while it holds
+  files. If a model compile ever fails with "Permission denied" on a `/tmp` path, add
+  `exec` to the `/tmp` line:
 
   ```yaml
   tmpfs:
@@ -160,11 +195,12 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements-dev.txt
-make check   # ruff, and docker compose config of compose.yaml
+make check   # ruff
 make test    # pytest
 ```
 
 `make` uses `.venv` when it exists, and `python3` otherwise (CI installs the tools there).
 Python 3.12 is the Python in the ROCm `immich-machine-learning` image. The tests don't need
-the image, a GPU or a Docker daemon; `tests/test_compose.py` needs the `docker compose` CLI
-and resolves `tests/stack/`, a minimal stack set up the way Setup describes.
+the image, a GPU or a Docker daemon; `tests/test_compose.py` needs the `docker compose` CLI.
+It pastes the two YAML blocks from Setup steps 2 and 3 into a minimal stack and resolves
+it, so the README's service is the one that is tested.
