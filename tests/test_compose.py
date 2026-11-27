@@ -119,4 +119,6 @@ def test_repo_file_keeps_hardening_and_entrypoint():
     assert warmup["container_name"] == "immich_ml_warmup"
     assert warmup["healthcheck"]["test"][0] == "CMD-SHELL"
     assert "ports" not in warmup
+    assert "cap_add" not in warmup
+    assert not warmup.get("privileged")
     assert not any("docker.sock" in v["source"] for v in warmup["volumes"])

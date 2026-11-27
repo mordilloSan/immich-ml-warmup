@@ -65,14 +65,16 @@ service definition.
      env_file: [.env]                           # same ML settings, plus the WARMUP_ variables
    ```
 
-   Adjust each line to match your `immich-machine-learning` service. Each of these must be
-   the same as in that service:
+   Adjust each line to match your `immich-machine-learning` service: copy what it has, and
+   leave out what it doesn't. Stock Immich, for example, runs ML as root on the default
+   network, so its warm-up needs no `user`, `group_add` or `networks` line. The `/cache`
+   volume and `env_file` are always needed. Each line you keep must match that service:
 
    - `user`: so both containers can write to the cache.
    - The `/cache` volume: a named volume (`model-cache:/cache`) works too.
    - `env_file`: the warm-up must see the same `MACHINE_LEARNING_` settings.
-   - `group_add`: the groups that own `/dev/kfd` and `/dev/dri/renderD128` on your host
-     (`stat -c '%g %n' /dev/kfd /dev/dri/renderD128`).
+   - `group_add`: only with `user`. The groups that own `/dev/kfd` and
+     `/dev/dri/renderD128` on your host (`stat -c '%g %n' /dev/kfd /dev/dri/renderD128`).
    - `networks`: the warm-up downloads models that aren't in the cache yet.
 
    You can add your own labels too, for example `io.linuxio.container.icon=si:amd`.
@@ -116,6 +118,9 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
 
 - To force a run, delete `.warmup-stamp.json` in the model cache and run
   `docker restart immich_ml_warmup`.
+- A run that starts with `check failed (...)` writes no stamp, even when it succeeds, so
+  the warm-up runs again at every start until the check works. It means the fingerprint
+  couldn't be computed, for example because a GPU library in the image can't be read.
 - "Healthy" means the warm-up is able to do its job: the cache is writable and the GPU
   devices are usable. It doesn't mean the models are compiled; the log says that.
 

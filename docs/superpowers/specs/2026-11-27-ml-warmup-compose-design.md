@@ -42,7 +42,8 @@ the container idles.
 
 - Compiled `.mxr` files only work with the onnxruntime and MIGraphX build that compiled them.
 - `preload_models` and `settings` are internal Immich code (`immich_ml.main`). If a release
-  renames them, the warm-up logs FAILED and models compile during jobs again.
+  renames them, the import fails, the log says `warm-up: python exited with an error`, and
+  models compile during jobs again.
 - The script runs on the ML image's Python. Tests in CI must not need `immich_ml`, a GPU or
   Docker.
 - Host: Docker Engine 29.10.1 with the containerd image store, Compose v5.8.0.
