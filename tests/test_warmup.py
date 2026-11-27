@@ -276,21 +276,44 @@ def test_main_failed_preload_writes_no_stamp(cache, monkeypatch, capsys):
     assert not (cache / STAMP).exists()
 
 
-def test_main_check_failed_runs_without_stamp(cache, monkeypatch, capsys):
-    def broken_fingerprint():
-        raise OSError("lib")
+def test_main_unreadable_gpu_library_runs_without_stamp(
+    cache, tmp_path, monkeypatch, capsys
+):
+    dangling = tmp_path / "libmigraphx_c.so.3"
+    dangling.symlink_to(
+        tmp_path / "gone.so"
+    )  # a broken symlink among the GPU libraries
+    real_glob = glob.glob
+    monkeypatch.setattr(
+        glob, "glob", lambda p: [str(dangling)] if "libmigraphx" in p else real_glob(p)
+    )
 
     async def preload(_):
         (cache / "a.mxr").write_bytes(b"x")
 
-    monkeypatch.setattr(warmup, "fingerprint", broken_fingerprint)
     install_fake_immich(monkeypatch, preload)
     warmup.main()
     out = capsys.readouterr().out
-    assert "warm-up: running, check failed (OSError('lib'))\n" in out
+    assert "warm-up: running, check failed (FileNotFoundError(" in out
     assert "warm-up: all models loaded or compiled in" in out
     assert "stamp written" not in out
     assert not (cache / STAMP).exists()
+
+
+def test_main_rewrites_a_stamp_without_files(cache, monkeypatch, capsys):
+    write_stamp_file(cache, {"fingerprint": warmup.fingerprint()})
+
+    async def preload(_):
+        (cache / "a.mxr").write_bytes(b"abc")
+
+    install_fake_immich(monkeypatch, preload)
+    warmup.main()
+    out = capsys.readouterr().out
+    assert "warm-up: running, unreadable stamp (KeyError('files'))\n" in out
+    stamp = json.loads((cache / STAMP).read_text())
+    assert stamp["files"] == {str(cache / "a.mxr"): 3}
+    warmup.main()
+    assert capsys.readouterr().out == SKIPPED
 
 
 def test_main_raises_when_immich_api_is_missing(cache, monkeypatch):

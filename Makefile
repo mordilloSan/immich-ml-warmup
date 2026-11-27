@@ -5,8 +5,9 @@
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
 # The Check workflow runs make check and make test on every pull request.
-# Locally, point PYTHON at the dev environment: make check PYTHON=.venv/bin/python
-PYTHON ?= python3
+# Uses the dev environment in .venv when there is one (README, Development), else python3,
+# where CI installs the tools. Override with PYTHON=...
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf " %-6s %s\n", $$1, $$2}' $(THIS_MAKEFILE)
