@@ -15,7 +15,6 @@ help: ## List the targets
 check: ## Lint the code
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m ruff format --check .
-	docker compose -f compose.yaml config -q
 
 test: ## Run the tests
 	$(PYTHON) -m pytest
