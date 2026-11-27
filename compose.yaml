@@ -10,6 +10,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Read-only image: the warm-up writes only to /cache and /tmp (ROCm's compiler temp files).
+    # Docker mounts /tmp noexec, and the tmpfs counts against mem_limit while it holds files.
+    # A stack can replace the /tmp entry, for example to add exec (README, Known limits).
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
     mem_limit: 16g
     pids_limit: 512
     devices:

@@ -145,6 +145,15 @@ WARMUP_MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL=ViT-B-32__openai
   compile during jobs again until this repo is updated.
 - The healthcheck checks `/dev/dri/renderD128`, the first GPU. If yours is another render
   node, set `healthcheck` in your service.
+- The container's filesystem is read-only. It writes only to `/cache` and to a 512 MB
+  `/tmp`, which Docker mounts `noexec`. If a model compile ever fails with
+  "Permission denied" on a `/tmp` path, give `/tmp` exec in your service. That entry replaces
+  the repo's:
+
+  ```yaml
+  tmpfs:
+    - /tmp:size=512m,mode=1777,exec
+  ```
 
 ## Development
 

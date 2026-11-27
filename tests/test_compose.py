@@ -121,4 +121,6 @@ def test_repo_file_keeps_hardening_and_entrypoint():
     assert "ports" not in warmup
     assert "cap_add" not in warmup
     assert not warmup.get("privileged")
+    assert warmup["read_only"] is True
+    assert warmup["tmpfs"] == ["/tmp:size=512m,mode=1777"]
     assert not any("docker.sock" in v["source"] for v in warmup["volumes"])
