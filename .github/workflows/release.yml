@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: ['main']
+
+permissions:
+  checks: read
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    name: Publish release
+    # Only merged release PRs from this repository: forks cannot publish.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'dev/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require passing checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # This workflow is itself one of the PR's checks, so leave it out.
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json bucket,workflow)
+          jq -e --arg self "$GITHUB_WORKFLOW" '[.[] | select(.workflow != $self)] |
+            length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          [[ "$RELEASE_BRANCH" =~ ^dev/v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          tag=${RELEASE_BRANCH#dev/}
+          release_args=()
+          [[ "$tag" == *-* ]] && release_args+=(--prerelease)
+          # The release PR body holds the grouped changelog written by open-pr.
+          if [[ -n $PR_BODY ]]; then release_args+=(--notes "$PR_BODY"); else release_args+=(--generate-notes); fi
+          # Without --title, a release with --notes has no name; name it after its tag.
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --target "$MERGE_SHA" "${release_args[@]}"
